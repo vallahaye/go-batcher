@@ -3,7 +3,6 @@ package batcher
 import (
 	"context"
 	"errors"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -108,34 +107,28 @@ func TestNewBatcher(t *testing.T) {
 
 func TestBatcherAdd(t *testing.T) {
 	for _, params := range []struct {
-		name  string
-		setup func(context.Context, *Batcher[int, int]) error
-		err   error
+		name string
+		err  error
 	}{
 		{
-			name: "add running",
-			setup: func(_ context.Context, b *Batcher[int, int]) error {
-				b.Run()
-				return nil
-			},
+			name: "add",
 		},
 		{
 			name: "add expires error",
-			setup: func(_ context.Context, _ *Batcher[int, int]) error {
-				return nil
-			},
-			err: context.DeadlineExceeded,
+			err:  context.DeadlineExceeded,
 		},
 	} {
 		t.Run(params.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 			defer cancel()
 
-			commitFn := func(_ context.Context, _ []*Operation[int, int]) {}
-
-			b := New(commitFn, WithTimeout[int, int](2*time.Second))
-			if err := params.setup(ctx, b); err != nil {
-				t.Fatalf("unexpected setup error: %v", err)
+			b := &Batcher[int, int]{
+				in: make(chan *Operation[int, int]),
+			}
+			if params.err == nil || !errors.Is(params.err, context.DeadlineExceeded) {
+				go func() {
+					<-b.in
+				}()
 			}
 
 			_, err := b.Add(ctx, 1)
@@ -150,76 +143,84 @@ func TestBatcherAdd(t *testing.T) {
 	}
 }
 
-func TestBatcherShutdown(t *testing.T) {
+func TestBatcherBatch(t *testing.T) {
 	for _, params := range []struct {
-		name       string
-		commitFn   CommitFunc[int, int]
-		setup      func(context.Context, *Batcher[int, int]) error
-		mustCommit bool
-		err        error
+		name    string
+		maxSize int
+		timeout time.Duration
 	}{
 		{
-			name:     "shutdown not running",
-			commitFn: func(_ context.Context, _ []*Operation[int, int]) {},
-			setup: func(_ context.Context, _ *Batcher[int, int]) error {
-				return nil
-			},
+			name:    "max size equals 10 and no timeout",
+			maxSize: 10,
+			timeout: NoTimeout,
 		},
 		{
-			name:     "shutdown running",
-			commitFn: func(_ context.Context, _ []*Operation[int, int]) {},
-			setup: func(_ context.Context, b *Batcher[int, int]) error {
-				b.Run()
-				return nil
-			},
+			name:    "unlimited size and timeout equals 1s",
+			maxSize: UnlimitedSize,
+			timeout: 1 * time.Second,
 		},
 		{
-			name:     "shutdown running must commit",
-			commitFn: func(_ context.Context, _ []*Operation[int, int]) {},
-			setup: func(ctx context.Context, b *Batcher[int, int]) error {
-				b.Run()
-				_, err := b.Add(ctx, 1)
-				return err
-			},
-			mustCommit: true,
-		},
-		{
-			name: "shutdown expires error",
-			commitFn: func(_ context.Context, _ []*Operation[int, int]) {
-				time.Sleep(2 * time.Second)
-			},
-			setup: func(ctx context.Context, b *Batcher[int, int]) error {
-				b.Run()
-				_, err := b.Add(ctx, 1)
-				return err
-			},
-			err: context.DeadlineExceeded,
+			name:    "max size equals 10 and timeout equals 1s",
+			maxSize: 10,
+			timeout: 1 * time.Second,
 		},
 	} {
 		t.Run(params.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			var committed atomic.Bool
-			commitFn := func(ctx context.Context, out []*Operation[int, int]) {
-				params.commitFn(ctx, out)
-				committed.Store(true)
+			totalSize := 0
+
+			b := &Batcher[time.Time, time.Time]{
+				commitFn: func(_ context.Context, out []*Operation[time.Time, time.Time]) {
+					const dt = 100 * time.Millisecond
+
+					elapsed := time.Since(out[0].Value)
+					t.Logf("committed batch: len(out) = %d, elapsed = %s", len(out), elapsed)
+
+					switch {
+					case params.maxSize != UnlimitedSize && len(out) > params.maxSize:
+						t.Errorf("unexpected batch size: got %d, want at most %d", len(out), params.maxSize)
+					case params.timeout != NoTimeout && elapsed-dt > params.timeout:
+						t.Errorf("unexpected timeout: got %s, want at most %s⩲%s", elapsed, params.timeout, dt)
+					}
+
+					totalSize += len(out)
+				},
+				maxSize: params.maxSize,
+				timeout: params.timeout,
+				in:      make(chan *Operation[time.Time, time.Time]),
 			}
 
-			b := New(commitFn, WithTimeout[int, int](2*time.Second))
-			if err := params.setup(ctx, b); err != nil {
-				t.Fatalf("unexpected setup error: %v", err)
+			done := make(chan struct{})
+			go func() {
+				b.Batch(ctx)
+				close(done)
+			}()
+
+			maxSize := max(params.maxSize, 10)
+			timeout := max(2*params.timeout, 1*time.Second)
+
+			for i := 0; i < maxSize; i++ {
+				// Simulate a delay to check that the batcher is indeed waiting
+				// indefinitely for the arrival of the first operation of a batch,
+				// and that it commits after a timeout.
+				if i == 0 || i == 1 {
+					time.Sleep(timeout)
+				}
+
+				b.in <- &Operation[time.Time, time.Time]{
+					Value: time.Now(),
+				}
 			}
 
-			err := b.Shutdown(ctx)
+			// Cancel the context to check that the batcher commits latent
+			// operations.
+			cancel()
+			<-done
 
-			switch {
-			case err == nil && params.mustCommit && !committed.Load():
-				t.Error("expected commit")
-			case err == nil && params.err != nil:
-				t.Error("expected error")
-			case err != nil && !errors.Is(err, params.err):
-				t.Errorf("unexpected error: got %v, want %v", err, params.err)
+			if totalSize != maxSize {
+				t.Errorf("unexpected total size: got %d, want %d", totalSize, maxSize)
 			}
 		})
 	}

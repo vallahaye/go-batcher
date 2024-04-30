@@ -8,10 +8,60 @@ import (
 )
 
 func TestNewOperation(t *testing.T) {
-	const v = 1
+	v := 1
 	op := newOperation[int, int](v)
+
 	if op.Value != v {
-		t.Errorf("expected value: got %d, want %d", op.Value, v)
+		t.Errorf("unexpected value: got %d, want %d", op.Value, v)
+	}
+}
+
+func TestOperationSetResult(t *testing.T) {
+	op := &Operation[int, int]{
+		done: make(chan struct{}),
+	}
+
+	result := 1
+	op.SetResult(result)
+
+	if op.result != result {
+		t.Errorf("unexpected result: got %d, want %d", op.result, result)
+	}
+
+	opened := true
+	select {
+	case _, opened = <-op.done:
+	default:
+	}
+
+	if opened {
+		t.Error("expected done channel to be closed")
+	}
+}
+
+func TestOperationSetError(t *testing.T) {
+	op := &Operation[int, int]{
+		done: make(chan struct{}),
+	}
+
+	err := errors.New("operation error")
+	op.SetError(err)
+
+	switch {
+	case op.err == nil:
+		t.Error("expected error")
+	case !errors.Is(op.err, err):
+		t.Errorf("unexpected error: got %v, want %v", op.err, err)
+	}
+
+	opened := true
+	select {
+	case _, opened = <-op.done:
+	default:
+	}
+
+	if opened {
+		t.Error("expected done channel to be closed")
 	}
 }
 
@@ -27,7 +77,7 @@ func TestOperationWait(t *testing.T) {
 		},
 		{
 			name: "wait error",
-			err:  errors.New("wait error"),
+			err:  errors.New("operation error"),
 		},
 		{
 			name: "wait expires error",
@@ -38,12 +88,17 @@ func TestOperationWait(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 			defer cancel()
 
-			op := newOperation[int, int](0)
+			op := &Operation[int, int]{
+				done: make(chan struct{}),
+			}
+
 			switch {
 			case params.err == nil:
-				op.SetResult(params.result)
+				op.result = params.result
+				close(op.done)
 			case !errors.Is(params.err, context.DeadlineExceeded):
-				op.SetError(params.err)
+				op.err = params.err
+				close(op.done)
 			}
 
 			result, err := op.Wait(ctx)

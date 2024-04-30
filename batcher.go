@@ -2,10 +2,14 @@ package batcher
 
 import (
 	"context"
-	"sync"
-	"sync/atomic"
 	"time"
 )
+
+// Batch an unlimited amount of operations.
+const UnlimitedSize = 0
+
+// Batch operations for an infinite duration.
+const NoTimeout time.Duration = 0
 
 type Option[T, R any] func(*Batcher[T, R])
 
@@ -27,32 +31,36 @@ type Batcher[T, R any] struct {
 	commitFn CommitFunc[T, R]
 	maxSize  int
 	timeout  time.Duration
-
-	in      chan *Operation[T, R]
-	ctx     context.Context
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup
-	running atomic.Bool
+	in       chan *Operation[T, R]
 }
 
 // New creates a new batcher, calling the commit function each time it
 // completes a batch of operations according to its options. It panics if the
 // commit function is nil, max size is negative, timeout is negative or max
-// size equals UnlimitedSize and timeout equals NoTimeout (the default if no
-// options are provided).
+// size equals [UnlimitedSize] and timeout equals [NoTimeout] (the default if
+// no options are provided).
 //
 // Some examples:
 //
-//	New[T, R](commitFn, WithMaxSize(10)) // creates a batcher committing a batch every 10 operations.
-//	New[T, R](commitFn, WithTimeout(1 * time.Second)) // creates a batcher committing a batch 1 second after accepting the first operation.
-//	New[T, R](commitFn, WithMaxSize(10), WithTimeout(1 * time.Second)) // creates a batcher committing a batch containing at most 10 operations and at most 1 second after accepting the first operation.
+// Create a batcher committing a batch every 10 operations:
+//
+//	New[T, R](commitFn, WithMaxSize(10))
+//
+// Create a batcher committing a batch 1 second after accepting the first
+// operation:
+//
+//	New[T, R](commitFn, WithTimeout(1 * time.Second))
+//
+// Create a batcher committing a batch containing at most 10 operations and at
+// most 1 second after accepting the first operation:
+//
+//	New[T, R](commitFn, WithMaxSize(10), WithTimeout(1 * time.Second))
 func New[T, R any](commitFn CommitFunc[T, R], opts ...Option[T, R]) *Batcher[T, R] {
 	b := &Batcher[T, R]{
 		commitFn: commitFn,
 		maxSize:  UnlimitedSize,
 		timeout:  NoTimeout,
-
-		in: make(chan *Operation[T, R]),
+		in:       make(chan *Operation[T, R]),
 	}
 
 	for _, opt := range opts {
@@ -71,8 +79,6 @@ func New[T, R any](commitFn CommitFunc[T, R], opts ...Option[T, R]) *Batcher[T, 
 		panic("batcher: negative timeout")
 	}
 
-	// Batching an unlimited number of operations for an infinite duration would
-	// not allow a single batch to be completed.
 	if b.maxSize == UnlimitedSize && b.timeout == NoTimeout {
 		panic("batcher: unlimited size with no timeout")
 	}
@@ -93,44 +99,69 @@ func (b *Batcher[T, R]) Add(ctx context.Context, v T) (*Operation[T, R], error) 
 	}
 }
 
-// Run ensures the batcher is running. If not, it starts it in the background.
-func (b *Batcher[T, R]) Run() {
-	if b.running.Load() {
-		return
+// Batch receives operations from the batcher, calling the commit function
+// whenever max size is reached or a timeout occurs. It waits indefinitely for
+// the first operation of each batch to arrive.
+//
+// When the provided context expires, the batching process is interrupted and
+// the function returns after a final call to the commit function. The latter
+// is ignored if there are no latent operations.
+func (b *Batcher[T, R]) Batch(ctx context.Context) {
+	var out []*Operation[T, R]
+	if b.maxSize != UnlimitedSize {
+		out = make([]*Operation[T, R], 0, b.maxSize)
 	}
 
-	b.ctx, b.cancel = context.WithCancel(context.Background())
-	b.wg.Add(1)
-	b.running.Store(true)
+	var (
+		t *time.Timer
+		c <-chan time.Time
+	)
 
-	go func() {
-		defer b.running.Store(false)
-		defer b.wg.Done()
-		defer b.cancel()
+	for {
+		var commit, done bool
+		select {
+		case op := <-b.in:
+			out = append(out, op)
+			if len(out) == b.maxSize {
+				commit = true
+			}
+		case <-c:
+			commit = true
+		case <-ctx.Done():
+			if len(out) > 0 {
+				commit = true
+			}
+			done = true
+		}
 
-		batch(b.ctx, b.in, b.maxSize, b.timeout, b.commitFn)
-	}()
-}
+		if commit {
+			b.commitFn(ctx, out)
 
-// Shutdown gracefully shuts down the batcher by draining it and waiting the
-// last commit to complete. If the provided context expires before the shutdown
-// is complete, Shutdown returns the context's error.
-func (b *Batcher[T, R]) Shutdown(ctx context.Context) error {
-	if !b.running.Load() {
-		return nil
-	}
+			// We reset the timer channel to wait indefinitely for the first
+			// operation of the next batch to arrive. A nil channel is never selected
+			// for reading.
+			c = nil
+			// We reset the slice while preserving the allocated memory.
+			out = out[:0]
+		}
 
-	done := make(chan struct{})
-	go func() {
-		b.cancel()
-		b.wg.Wait()
-		close(done)
-	}()
+		if done {
+			break
+		}
 
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+		if !commit && c == nil && b.timeout != NoTimeout {
+			if t == nil {
+				t = time.NewTimer(b.timeout)
+			} else {
+				if !t.Stop() {
+					select {
+					case <-t.C:
+					default:
+					}
+				}
+				t.Reset(b.timeout)
+			}
+			c = t.C
+		}
 	}
 }
