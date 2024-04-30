@@ -28,9 +28,12 @@ commitFn := func(ctx context.Context, out []*batcher.Operation[string, string]) 
 // Create a batcher committing a batch every 10 operations.
 b := batcher.New(commitFn, batcher.WithMaxSize[string, string](10))
 
-// Run the batcher in the background.
-// See [Batcher.Shutdown] to gracefully shutdown the batcher.
-b.Run()
+// Run the batcher in the background. Cancel the context to interrupt the
+// batching process.
+ctx, cancel := context.WithCancel(context.Background())
+go func() {
+  b.Batch(ctx)
+}()
 
 http.HandleFunc("/add", func(w http.ResponseWriter, r *http.Request) {
   // Send the value to the batcher.
