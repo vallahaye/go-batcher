@@ -105,16 +105,16 @@ func TestNewBatcher(t *testing.T) {
 	}
 }
 
-func TestBatcherAdd(t *testing.T) {
+func TestBatcherSend(t *testing.T) {
 	for _, params := range []struct {
 		name string
 		err  error
 	}{
 		{
-			name: "add",
+			name: "send value",
 		},
 		{
-			name: "add expires error",
+			name: "send expires error",
 			err:  context.DeadlineExceeded,
 		},
 	} {
@@ -131,11 +131,13 @@ func TestBatcherAdd(t *testing.T) {
 				}()
 			}
 
-			_, err := b.Add(ctx, 1)
+			_, err := b.Send(ctx, 1)
 
 			switch {
 			case err == nil && params.err != nil:
 				t.Error("expected error")
+			case err != nil && params.err == nil:
+				t.Errorf("unexpected error: %v", err)
 			case err != nil && !errors.Is(err, params.err):
 				t.Errorf("unexpected error: got %v, want %v", err, params.err)
 			}
@@ -199,14 +201,19 @@ func TestBatcherBatch(t *testing.T) {
 			}()
 
 			maxSize := max(params.maxSize, 10)
-			timeout := max(2*params.timeout, 1*time.Second)
+			greaterTimeout := max(2*params.timeout, 1*time.Second)
 
 			for i := 0; i < maxSize; i++ {
-				// Simulate a delay to check that the batcher is indeed waiting
-				// indefinitely for the arrival of the first operation of a batch,
-				// and that it commits after a timeout.
-				if i == 0 || i == 1 {
-					time.Sleep(timeout)
+				switch i {
+				case 0:
+					// Simulate a delay to check that the batcher doesn't timeout while
+					// receiving the first operation.
+					time.Sleep(greaterTimeout)
+
+				case 1:
+					// Simulate a delay to check that the batcher commits after a
+					// timeout.
+					time.Sleep(greaterTimeout)
 				}
 
 				b.in <- &Operation[time.Time, time.Time]{
