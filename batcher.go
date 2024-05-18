@@ -46,13 +46,13 @@ type Batcher[T, R any] struct {
 //
 //	New[T, R](commitFn, WithMaxSize(10))
 //
-// Create a batcher committing a batch 1 second after accepting the first
+// Create a batcher committing a batch 1 second after receiving the first
 // operation:
 //
 //	New[T, R](commitFn, WithTimeout(1 * time.Second))
 //
 // Create a batcher committing a batch containing at most 10 operations and at
-// most 1 second after accepting the first operation:
+// most 1 second after receiving the first operation:
 //
 //	New[T, R](commitFn, WithMaxSize(10), WithTimeout(1 * time.Second))
 func New[T, R any](commitFn CommitFunc[T, R], opts ...Option[T, R]) *Batcher[T, R] {
@@ -86,10 +86,10 @@ func New[T, R any](commitFn CommitFunc[T, R], opts ...Option[T, R]) *Batcher[T, 
 	return b
 }
 
-// Add creates a new operation and sends it to the batcher in a blocking
-// fashion. If the provided context expires before the batcher accepts the
-// operation, Add returns the context's error.
-func (b *Batcher[T, R]) Add(ctx context.Context, v T) (*Operation[T, R], error) {
+// Send creates a new operation and sends it to the batcher in a blocking
+// fashion. If the provided context expires before the batcher receives the
+// operation, Send returns the context's error.
+func (b *Batcher[T, R]) Send(ctx context.Context, v T) (*Operation[T, R], error) {
 	op := newOperation[T, R](v)
 	select {
 	case b.in <- op:
@@ -100,12 +100,12 @@ func (b *Batcher[T, R]) Add(ctx context.Context, v T) (*Operation[T, R], error) 
 }
 
 // Batch receives operations from the batcher, calling the commit function
-// whenever max size is reached or a timeout occurs. It waits indefinitely for
-// the first operation of each batch to arrive.
+// whenever max size is reached or a timeout occurs. Timeouts are disabled
+// while receiving the first operation of each batch.
 //
 // When the provided context expires, the batching process is interrupted and
 // the function returns after a final call to the commit function. The latter
-// is ignored if there are no latent operations.
+// is skipped if there are no latent operations.
 func (b *Batcher[T, R]) Batch(ctx context.Context) {
 	var out []*Operation[T, R]
 	if b.maxSize != UnlimitedSize {
@@ -137,9 +137,8 @@ func (b *Batcher[T, R]) Batch(ctx context.Context) {
 		if commit {
 			b.commitFn(ctx, out)
 
-			// We reset the timer channel to wait indefinitely for the first
-			// operation of the next batch to arrive. A nil channel is never selected
-			// for reading.
+			// A nil channel is never selected for reading, thus preventing a timeout
+			// while receiving the next operation.
 			c = nil
 			// We reset the slice while preserving the allocated memory.
 			out = out[:0]
