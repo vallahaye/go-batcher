@@ -33,6 +33,7 @@ b := batcher.New(commitFn, batcher.WithMaxSize[string, string](10))
 // Run the batcher in the background. Cancel the context to interrupt the batching process.
 ctx, cancel := context.WithCancel(context.Background())
 defer cancel()
+
 go func() {
   b.Batch(ctx)
 }()
