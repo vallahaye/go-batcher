@@ -137,10 +137,7 @@ func (b *Batcher[T, R]) Batch(ctx context.Context) {
 		if commit {
 			b.commitFn(ctx, out)
 
-			// A nil channel is never selected for reading, thus preventing a timeout
-			// while receiving the next operation.
 			c = nil
-			// We reset the slice while preserving the allocated memory.
 			out = out[:0]
 		}
 
@@ -152,12 +149,6 @@ func (b *Batcher[T, R]) Batch(ctx context.Context) {
 			if t == nil {
 				t = time.NewTimer(b.timeout)
 			} else {
-				if !t.Stop() {
-					select {
-					case <-t.C:
-					default:
-					}
-				}
 				t.Reset(b.timeout)
 			}
 			c = t.C
