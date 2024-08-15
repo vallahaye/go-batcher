@@ -171,11 +171,16 @@ func TestBatcherBatch(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			totalSize := 0
+			countedTotalSize := 0
 
 			b := &Batcher[time.Time, time.Time]{
 				commitFn: func(_ context.Context, out []*Operation[time.Time, time.Time]) {
 					const dt = 100 * time.Millisecond
+
+					if len(out) == 0 {
+						t.Error("unfilled batch committed")
+						return
+					}
 
 					elapsed := time.Since(out[0].Value)
 					t.Logf("committed batch: len(out) = %d, elapsed = %s", len(out), elapsed)
@@ -187,7 +192,7 @@ func TestBatcherBatch(t *testing.T) {
 						t.Errorf("unexpected timeout: got %s, want at most %s⩲%s", elapsed, params.timeout, dt)
 					}
 
-					totalSize += len(out)
+					countedTotalSize += len(out)
 				},
 				maxSize: params.maxSize,
 				timeout: params.timeout,
@@ -200,19 +205,17 @@ func TestBatcherBatch(t *testing.T) {
 				close(done)
 			}()
 
-			maxSize := max(params.maxSize, 10)
-			greaterTimeout := max(2*params.timeout, 1*time.Second)
+			totalSize := max(2*params.maxSize, 10)
+			greaterTimeout := params.timeout + 1*time.Second
 
-			for i := 0; i < maxSize; i++ {
+			for i := 0; i < totalSize; i++ {
 				switch i {
 				case 0:
-					// Simulate a delay to check that the batcher doesn't timeout while
-					// receiving the first operation.
+					// Simulate a delay to check that the batcher doesn't timeout while receiving the first operation.
 					time.Sleep(greaterTimeout)
 
 				case 1:
-					// Simulate a delay to check that the batcher commits after a
-					// timeout.
+					// Simulate a delay to check that the batcher commits after a timeout.
 					time.Sleep(greaterTimeout)
 				}
 
@@ -221,13 +224,12 @@ func TestBatcherBatch(t *testing.T) {
 				}
 			}
 
-			// Cancel the context to check that the batcher commits latent
-			// operations.
+			// Cancel the context to check that the batcher commits latent operations.
 			cancel()
 			<-done
 
-			if totalSize != maxSize {
-				t.Errorf("unexpected total size: got %d, want %d", totalSize, maxSize)
+			if countedTotalSize != totalSize {
+				t.Errorf("unexpected counted total size: got %d, want %d", countedTotalSize, totalSize)
 			}
 		})
 	}
