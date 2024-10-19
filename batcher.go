@@ -107,9 +107,9 @@ func (b *Batcher[T, R]) Send(ctx context.Context, v T) (*Operation[T, R], error)
 // the function returns after a final call to the commit function. The latter
 // is skipped if there are no latent operations.
 func (b *Batcher[T, R]) Batch(ctx context.Context) {
-	var out []*Operation[T, R]
+	var out Operations[T, R]
 	if b.maxSize != UnlimitedSize {
-		out = make([]*Operation[T, R], 0, b.maxSize)
+		out = make(Operations[T, R], 0, b.maxSize)
 	}
 
 	var (

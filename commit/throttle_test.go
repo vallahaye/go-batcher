@@ -22,13 +22,13 @@ func TestThrottle(t *testing.T) {
 		},
 		{
 			name:      "negative interval",
-			commitFn:  func(_ context.Context, _ []*batcher.Operation[int, int]) {},
+			commitFn:  func(_ context.Context, _ batcher.Operations[int, int]) {},
 			interval:  -1 * time.Second,
 			mustPanic: true,
 		},
 		{
 			name:     "interval equals 1s",
-			commitFn: func(_ context.Context, _ []*batcher.Operation[int, int]) {},
+			commitFn: func(_ context.Context, _ batcher.Operations[int, int]) {},
 			interval: 1 * time.Second,
 		},
 	} {

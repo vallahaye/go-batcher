@@ -22,7 +22,7 @@ func TestTimeout(t *testing.T) {
 		},
 		{
 			name: "timeout equals 1s",
-			commitFn: func(ctx context.Context, _ []*batcher.Operation[int, int]) {
+			commitFn: func(ctx context.Context, _ batcher.Operations[int, int]) {
 				<-ctx.Done()
 			},
 			timeout: 1 * time.Second,
