@@ -19,12 +19,14 @@ Go Batcher provides a generic and versatile implementation of a batching algorit
 
 ```go
 // Define a commit function.
-commitFn := func(ctx context.Context, out []*batcher.Operation[string, string]) {
+commitFn := func(ctx context.Context, ops batcher.Operations[string, string]) {
   // Watch the context's Done channel to know when the batching process gets interrupted.
   //
   // Do something with the batch of operations.
-  //
-  // See [Operation.SetResult] and [Operation.SetError] to signal results and errors.
+  // See [Operations.SetError] to signal an error to all operations.
+  for _, op := range ops {
+    // See [Operation.SetResult] and [Operation.SetError] to signal individual results and errors.
+  }
 }
 
 // Create a batcher committing a batch every 10 operations.

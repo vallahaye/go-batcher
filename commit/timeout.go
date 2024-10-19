@@ -14,7 +14,7 @@ func Timeout[T, R any](commitFn batcher.CommitFunc[T, R], timeout time.Duration)
 		panic("batcher: nil commit func")
 	}
 
-	return func(parent context.Context, ops []*batcher.Operation[T, R]) {
+	return func(parent context.Context, ops batcher.Operations[T, R]) {
 		ctx, cancel := context.WithTimeout(parent, timeout)
 		defer cancel()
 

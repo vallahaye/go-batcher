@@ -23,7 +23,7 @@ func TestNewBatcher(t *testing.T) {
 		},
 		{
 			name:     "negative max size",
-			commitFn: func(_ context.Context, _ []*Operation[int, int]) {},
+			commitFn: func(_ context.Context, _ Operations[int, int]) {},
 			opts: []Option[int, int]{
 				WithMaxSize[int, int](-1),
 			},
@@ -31,7 +31,7 @@ func TestNewBatcher(t *testing.T) {
 		},
 		{
 			name:     "negative timeout",
-			commitFn: func(_ context.Context, _ []*Operation[int, int]) {},
+			commitFn: func(_ context.Context, _ Operations[int, int]) {},
 			opts: []Option[int, int]{
 				WithTimeout[int, int](-1 * time.Second),
 			},
@@ -39,7 +39,7 @@ func TestNewBatcher(t *testing.T) {
 		},
 		{
 			name:     "unlimited size with no timeout",
-			commitFn: func(_ context.Context, _ []*Operation[int, int]) {},
+			commitFn: func(_ context.Context, _ Operations[int, int]) {},
 			opts: []Option[int, int]{
 				WithMaxSize[int, int](UnlimitedSize),
 				WithTimeout[int, int](NoTimeout),
@@ -48,13 +48,13 @@ func TestNewBatcher(t *testing.T) {
 		},
 		{
 			name:      "unlimited size with no timeout (no option provided)",
-			commitFn:  func(_ context.Context, _ []*Operation[int, int]) {},
+			commitFn:  func(_ context.Context, _ Operations[int, int]) {},
 			opts:      nil,
 			mustPanic: true,
 		},
 		{
 			name:     "max size equals 10",
-			commitFn: func(_ context.Context, _ []*Operation[int, int]) {},
+			commitFn: func(_ context.Context, _ Operations[int, int]) {},
 			opts: []Option[int, int]{
 				WithMaxSize[int, int](10),
 			},
@@ -63,7 +63,7 @@ func TestNewBatcher(t *testing.T) {
 		},
 		{
 			name:     "timeout equals 1s",
-			commitFn: func(_ context.Context, _ []*Operation[int, int]) {},
+			commitFn: func(_ context.Context, _ Operations[int, int]) {},
 			opts: []Option[int, int]{
 				WithTimeout[int, int](1 * time.Second),
 			},
@@ -72,7 +72,7 @@ func TestNewBatcher(t *testing.T) {
 		},
 		{
 			name:     "max size equals 10 and timeout equals 1s",
-			commitFn: func(_ context.Context, _ []*Operation[int, int]) {},
+			commitFn: func(_ context.Context, _ Operations[int, int]) {},
 			opts: []Option[int, int]{
 				WithMaxSize[int, int](10),
 				WithTimeout[int, int](1 * time.Second),
@@ -174,25 +174,25 @@ func TestBatcherBatch(t *testing.T) {
 			countedTotalSize := 0
 
 			b := &Batcher[time.Time, time.Time]{
-				commitFn: func(_ context.Context, out []*Operation[time.Time, time.Time]) {
+				commitFn: func(_ context.Context, ops Operations[time.Time, time.Time]) {
 					const dt = 100 * time.Millisecond
 
-					if len(out) == 0 {
+					if len(ops) == 0 {
 						t.Error("unfilled batch committed")
 						return
 					}
 
-					elapsed := time.Since(out[0].Value)
-					t.Logf("committed batch: len(out) = %d, elapsed = %s", len(out), elapsed)
+					elapsed := time.Since(ops[0].Value)
+					t.Logf("committed batch: len(out) = %d, elapsed = %s", len(ops), elapsed)
 
 					switch {
-					case params.maxSize != UnlimitedSize && len(out) > params.maxSize:
-						t.Errorf("unexpected batch size: got %d, want at most %d", len(out), params.maxSize)
+					case params.maxSize != UnlimitedSize && len(ops) > params.maxSize:
+						t.Errorf("unexpected batch size: got %d, want at most %d", len(ops), params.maxSize)
 					case params.timeout != NoTimeout && elapsed-dt > params.timeout:
 						t.Errorf("unexpected timeout: got %s, want at most %s⩲%s", elapsed, params.timeout, dt)
 					}
 
-					countedTotalSize += len(out)
+					countedTotalSize += len(ops)
 				},
 				maxSize: params.maxSize,
 				timeout: params.timeout,

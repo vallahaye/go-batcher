@@ -20,7 +20,7 @@ func Throttle[T, R any](commitFn batcher.CommitFunc[T, R], interval time.Duratio
 	}
 
 	t := time.NewTimer(0)
-	return func(ctx context.Context, ops []*batcher.Operation[T, R]) {
+	return func(ctx context.Context, ops batcher.Operations[T, R]) {
 		defer t.Reset(interval)
 
 		select {
