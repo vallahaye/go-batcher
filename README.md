@@ -8,12 +8,12 @@ Go Batcher provides a generic and versatile implementation of a batching algorit
 ### Goals
 
 - Easy to use and minimal API surface area
-- Efficient use of resources, i.e. reuse of memory and good use of goroutines parking behavior
+- Efficient use of resources, i.e., reuse of memory and good use of goroutines parking behavior
 - Well-tested and documented
 
 ### Non-goals
 
-- Provide helper functions to interface Go Batcher with other software solutions (for example, connecting Go Batcher to a distributed task/job framework)
+- Provide integrations with other software solutions (e.g., connecting Go Batcher to a distributed task/job framework)
 
 ## Example
 
@@ -23,9 +23,9 @@ commitFn := func(ctx context.Context, ops batcher.Operations[string, string]) {
   // Watch the context's Done channel to know when the batching process gets interrupted.
   //
   // Do something with the batch of operations.
-  // See [Operations.SetError] to signal an error to all operations.
+  // See [Operations.SignalError] to complete all operations with an error.
   for _, op := range ops {
-    // See [Operation.SetResult] and [Operation.SetError] to signal individual results and errors.
+    // See [Operation.SignalResult] and [Operation.SignalError] to complete operations individually with a result or an error.
   }
 }
 
@@ -47,7 +47,7 @@ http.HandleFunc("/send", func(w http.ResponseWriter, r *http.Request) {
     // Do something with the error.
   }
 
-  // Get the operation's result.
+  // Wait for the operation to complete and get the result.
   result, err := op.Wait(r.Context())
   if err != nil {
     // Do something with the error.

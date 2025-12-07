@@ -2,9 +2,10 @@ package batcher
 
 type Operations[T, R any] []*Operation[T, R]
 
-// SetError signals an error to all operations.
-func (o Operations[T, R]) SetError(err error) {
+// SignalError completes all operations with the given error and notifies any
+// waiting consumers. It panics if any operation has already completed.
+func (o Operations[T, R]) SignalError(err error) {
 	for _, op := range o {
-		op.SetError(err)
+		op.SignalError(err)
 	}
 }

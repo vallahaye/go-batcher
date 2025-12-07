@@ -16,36 +16,30 @@ func TestNewOperation(t *testing.T) {
 	}
 }
 
-func TestOperationSetResult(t *testing.T) {
-	op := &Operation[int, int]{
-		done: make(chan struct{}),
-	}
+func TestOperationSignalResult(t *testing.T) {
+	op := newOperation[int, int](1)
 
 	result := 1
-	op.SetResult(result)
+	op.SignalResult(result)
 
 	if op.result != result {
 		t.Errorf("unexpected result: got %d, want %d", op.result, result)
 	}
 
-	opened := true
-	select {
-	case _, opened = <-op.done:
-	default:
-	}
+	defer func() {
+		if v := recover(); v == nil {
+			t.Error("expected panic")
+		}
+	}()
 
-	if opened {
-		t.Error("expected done channel to be closed")
-	}
+	op.SignalResult(2)
 }
 
-func TestOperationSetError(t *testing.T) {
-	op := &Operation[int, int]{
-		done: make(chan struct{}),
-	}
+func TestOperationSignalError(t *testing.T) {
+	op := newOperation[int, int](1)
 
 	err := errors.New("operation error")
-	op.SetError(err)
+	op.SignalError(err)
 
 	switch {
 	case op.err == nil:
@@ -54,15 +48,13 @@ func TestOperationSetError(t *testing.T) {
 		t.Errorf("unexpected error: got %v, want %v", op.err, err)
 	}
 
-	opened := true
-	select {
-	case _, opened = <-op.done:
-	default:
-	}
+	defer func() {
+		if v := recover(); v == nil {
+			t.Error("expected panic")
+		}
+	}()
 
-	if opened {
-		t.Error("expected done channel to be closed")
-	}
+	op.SignalError(errors.New("another operation error"))
 }
 
 func TestOperationWait(t *testing.T) {
@@ -88,17 +80,13 @@ func TestOperationWait(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
 			defer cancel()
 
-			op := &Operation[int, int]{
-				done: make(chan struct{}),
-			}
+			op := newOperation[int, int](1)
 
 			switch {
 			case params.err == nil:
-				op.result = params.result
-				close(op.done)
+				op.SignalResult(params.result)
 			case !errors.Is(params.err, context.DeadlineExceeded):
-				op.err = params.err
-				close(op.done)
+				op.SignalError(params.err)
 			}
 
 			result, err := op.Wait(ctx)
