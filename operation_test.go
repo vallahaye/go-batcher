@@ -85,7 +85,7 @@ func TestOperationWait(t *testing.T) {
 		},
 	} {
 		t.Run(params.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
 			defer cancel()
 
 			op := &Operation[int, int]{
