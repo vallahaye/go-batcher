@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestOperationsSetError(t *testing.T) {
+func TestOperationsSignalError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
 	defer cancel()
 
@@ -17,7 +17,7 @@ func TestOperationsSetError(t *testing.T) {
 	}
 
 	want := errors.New("operation error")
-	ops.SetError(want)
+	ops.SignalError(want)
 
 	for _, op := range ops {
 		switch _, got := op.Wait(ctx); {

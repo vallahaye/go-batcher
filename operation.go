@@ -18,14 +18,16 @@ func newOperation[T, R any](v T) *Operation[T, R] {
 	}
 }
 
-// SetResult signals the operation's result.
-func (o *Operation[T, R]) SetResult(result R) {
+// SignalResult completes the operation with the given result and notifies any
+// waiting consumers. It panics if the operation has already completed.
+func (o *Operation[T, R]) SignalResult(result R) {
 	o.result = result
 	close(o.done)
 }
 
-// SetError signals an error relating to the operation.
-func (o *Operation[T, R]) SetError(err error) {
+// SignalError completes the operation with the given error and notifies any
+// waiting consumers. It panics if the operation has already completed.
+func (o *Operation[T, R]) SignalError(err error) {
 	o.err = err
 	close(o.done)
 }
