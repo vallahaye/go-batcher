@@ -119,7 +119,7 @@ func TestBatcherSend(t *testing.T) {
 		},
 	} {
 		t.Run(params.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
 			defer cancel()
 
 			b := &Batcher[int, int]{
@@ -168,7 +168,7 @@ func TestBatcherBatch(t *testing.T) {
 		},
 	} {
 		t.Run(params.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
 			countedTotalSize := 0

@@ -8,7 +8,7 @@ import (
 )
 
 func TestOperationsSetError(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
 	defer cancel()
 
 	ops := make(Operations[int, int], 2)
