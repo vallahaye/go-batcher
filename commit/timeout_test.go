@@ -44,7 +44,7 @@ func TestTimeout(t *testing.T) {
 			commitFn := Timeout(params.commitFn, params.timeout)
 
 			committedAt := time.Now()
-			commitFn(context.Background(), nil)
+			commitFn(t.Context(), nil)
 
 			if elapsed := time.Since(committedAt); elapsed-dt > params.timeout {
 				t.Errorf("unexpected timeout: got %s, want %s⩲%s", elapsed, params.timeout, dt)
