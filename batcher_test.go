@@ -87,7 +87,7 @@ func TestNewBatcher(t *testing.T) {
 				v := recover()
 				switch {
 				case params.mustPanic && v == nil:
-					t.Errorf("expected panic")
+					t.Error("expected panic")
 				case !params.mustPanic && v != nil:
 					t.Errorf("unexpected panic: %v", v)
 				case !params.mustPanic && v == nil:
