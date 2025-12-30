@@ -33,28 +33,28 @@ func TestThrottle(t *testing.T) {
 		},
 	} {
 		t.Run(params.name, func(t *testing.T) {
-			const dt = 100 * time.Millisecond
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+
+			const (
+				size = 3
+				dt   = 100 * time.Millisecond
+			)
 
 			defer func() {
-				v := recover()
-				switch {
-				case params.mustPanic && v == nil:
+				switch r := recover(); {
+				case params.mustPanic && r == nil:
 					t.Error("expected panic")
-				case !params.mustPanic && v != nil:
-					t.Errorf("unexpected panic: %v", v)
+				case !params.mustPanic && r != nil:
+					t.Errorf("unexpected panic: %v", r)
 				}
 			}()
 
 			commitFn := Throttle(params.commitFn, params.interval)
 
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-
-			const size = 3
 			for i, interval := range [size]time.Duration{0, params.interval, 0} {
 				if i == size-1 {
-					// Cancel the context to check that the commit function is called
-					// immediately.
+					// Cancel the context to check that the commit function is called immediately.
 					cancel()
 				}
 

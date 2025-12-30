@@ -27,7 +27,7 @@ func TestOperationSignalResult(t *testing.T) {
 	}
 
 	defer func() {
-		if v := recover(); v == nil {
+		if r := recover(); r == nil {
 			t.Error("expected panic")
 		}
 	}()
@@ -49,7 +49,7 @@ func TestOperationSignalError(t *testing.T) {
 	}
 
 	defer func() {
-		if v := recover(); v == nil {
+		if r := recover(); r == nil {
 			t.Error("expected panic")
 		}
 	}()

@@ -3,6 +3,7 @@ package batcher
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -84,13 +85,12 @@ func TestNewBatcher(t *testing.T) {
 		t.Run(params.name, func(t *testing.T) {
 			var b *Batcher[int, int]
 			defer func() {
-				v := recover()
-				switch {
-				case params.mustPanic && v == nil:
+				switch r := recover(); {
+				case params.mustPanic && r == nil:
 					t.Error("expected panic")
-				case !params.mustPanic && v != nil:
-					t.Errorf("unexpected panic: %v", v)
-				case !params.mustPanic && v == nil:
+				case !params.mustPanic && r != nil:
+					t.Errorf("unexpected panic: %v", r)
+				case !params.mustPanic && r == nil:
 					if b.maxSize != params.maxSize {
 						t.Errorf("unexpected max size: got %d, want %d", b.maxSize, params.maxSize)
 					}
@@ -107,11 +107,13 @@ func TestNewBatcher(t *testing.T) {
 
 func TestBatcherSend(t *testing.T) {
 	for _, params := range []struct {
-		name string
-		err  error
+		name  string
+		value int
+		err   error
 	}{
 		{
-			name: "send value",
+			name:  "send value",
+			value: 1,
 		},
 		{
 			name: "send expires error",
@@ -122,16 +124,18 @@ func TestBatcherSend(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
 			defer cancel()
 
-			b := &Batcher[int, int]{
-				in: make(chan *Operation[int, int]),
-			}
+			b := New(func(_ context.Context, _ Operations[int, int]) {}, WithMaxSize[int, int](1))
+
+			var wg sync.WaitGroup
 			if params.err == nil || !errors.Is(params.err, context.DeadlineExceeded) {
+				wg.Add(1)
 				go func() {
-					<-b.in
+					defer wg.Done()
+					b.Batch(ctx)
 				}()
 			}
 
-			_, err := b.Send(ctx, 1)
+			op, err := b.Send(ctx, params.value)
 
 			switch {
 			case err == nil && params.err != nil:
@@ -140,7 +144,11 @@ func TestBatcherSend(t *testing.T) {
 				t.Errorf("unexpected error: %v", err)
 			case err != nil && !errors.Is(err, params.err):
 				t.Errorf("unexpected error: got %v, want %v", err, params.err)
+			case err == nil && op.Value != params.value:
+				t.Errorf("unexpected value: got %d, want %d", op.Value, params.value)
 			}
+
+			wg.Wait()
 		})
 	}
 }
@@ -171,43 +179,38 @@ func TestBatcherBatch(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
-			countedTotalSize := 0
+			totalSizeCommitted := 0
+			commitFn := func(_ context.Context, ops Operations[time.Time, time.Time]) {
+				const dt = 100 * time.Millisecond
 
-			b := &Batcher[time.Time, time.Time]{
-				commitFn: func(_ context.Context, ops Operations[time.Time, time.Time]) {
-					const dt = 100 * time.Millisecond
+				if len(ops) == 0 {
+					t.Error("empty batch committed")
+					return
+				}
 
-					if len(ops) == 0 {
-						t.Error("unfilled batch committed")
-						return
-					}
+				elapsed := time.Since(ops[0].Value)
+				t.Logf("committed batch: len(ops) = %d, elapsed = %s", len(ops), elapsed)
 
-					elapsed := time.Since(ops[0].Value)
-					t.Logf("committed batch: len(out) = %d, elapsed = %s", len(ops), elapsed)
+				switch {
+				case params.maxSize != UnlimitedSize && len(ops) > params.maxSize:
+					t.Errorf("unexpected batch size: got %d, want at most %d", len(ops), params.maxSize)
+				case params.timeout != NoTimeout && elapsed-dt > params.timeout:
+					t.Errorf("unexpected timeout: got %s, want at most %s⩲%s", elapsed, params.timeout, dt)
+				}
 
-					switch {
-					case params.maxSize != UnlimitedSize && len(ops) > params.maxSize:
-						t.Errorf("unexpected batch size: got %d, want at most %d", len(ops), params.maxSize)
-					case params.timeout != NoTimeout && elapsed-dt > params.timeout:
-						t.Errorf("unexpected timeout: got %s, want at most %s⩲%s", elapsed, params.timeout, dt)
-					}
-
-					countedTotalSize += len(ops)
-				},
-				maxSize: params.maxSize,
-				timeout: params.timeout,
-				in:      make(chan *Operation[time.Time, time.Time]),
+				totalSizeCommitted += len(ops)
 			}
+			b := New(commitFn, WithMaxSize[time.Time, time.Time](params.maxSize), WithTimeout[time.Time, time.Time](params.timeout))
 
-			done := make(chan struct{})
+			var wg sync.WaitGroup
+			wg.Add(1)
 			go func() {
+				defer wg.Done()
 				b.Batch(ctx)
-				close(done)
 			}()
 
 			totalSize := max(2*params.maxSize, 10)
 			greaterTimeout := params.timeout + 1*time.Second
-
 			for i := range totalSize {
 				switch i {
 				case 0:
@@ -219,17 +222,17 @@ func TestBatcherBatch(t *testing.T) {
 					time.Sleep(greaterTimeout)
 				}
 
-				b.in <- &Operation[time.Time, time.Time]{
-					Value: time.Now(),
+				if _, err := b.Send(ctx, time.Now()); err != nil {
+					t.Errorf("unexpected send error: %v", err)
 				}
 			}
 
 			// Cancel the context to check that the batcher commits latent operations.
 			cancel()
-			<-done
+			wg.Wait()
 
-			if countedTotalSize != totalSize {
-				t.Errorf("unexpected counted total size: got %d, want %d", countedTotalSize, totalSize)
+			if totalSizeCommitted != totalSize {
+				t.Errorf("unexpected total size: got %d, want %d", totalSizeCommitted, totalSize)
 			}
 		})
 	}

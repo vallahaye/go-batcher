@@ -32,12 +32,11 @@ func TestTimeout(t *testing.T) {
 			const dt = 100 * time.Millisecond
 
 			defer func() {
-				v := recover()
-				switch {
-				case params.mustPanic && v == nil:
+				switch r := recover(); {
+				case params.mustPanic && r == nil:
 					t.Error("expected panic")
-				case !params.mustPanic && v != nil:
-					t.Errorf("unexpected panic: %v", v)
+				case !params.mustPanic && r != nil:
+					t.Errorf("unexpected panic: %v", r)
 				}
 			}()
 
