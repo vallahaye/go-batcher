@@ -12,7 +12,7 @@ func TestOperationsSignalError(t *testing.T) {
 	defer cancel()
 
 	ops := make(Operations[int, int], 2)
-	for i := 0; i < len(ops); i++ {
+	for i := range len(ops) {
 		ops[i] = newOperation[int, int](i)
 	}
 

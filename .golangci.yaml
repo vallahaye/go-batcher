@@ -3,6 +3,7 @@ linters:
   default: none
   enable:
     - govet
+    - modernize
 formatters:
   enable:
     - gofmt

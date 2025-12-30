@@ -208,7 +208,7 @@ func TestBatcherBatch(t *testing.T) {
 			totalSize := max(2*params.maxSize, 10)
 			greaterTimeout := params.timeout + 1*time.Second
 
-			for i := 0; i < totalSize; i++ {
+			for i := range totalSize {
 				switch i {
 				case 0:
 					// Simulate a delay to check that the batcher doesn't timeout while receiving the first operation.
