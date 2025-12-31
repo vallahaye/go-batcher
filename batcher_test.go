@@ -12,8 +12,7 @@ func TestNewBatcher(t *testing.T) {
 	for _, params := range []struct {
 		name      string
 		commitFn  CommitFunc[int, int]
-		opts      []Option[int, int]
-		maxSize   int
+		size      int
 		timeout   time.Duration
 		mustPanic bool
 	}{
@@ -23,63 +22,42 @@ func TestNewBatcher(t *testing.T) {
 			mustPanic: true,
 		},
 		{
-			name:     "negative max size",
-			commitFn: func(_ context.Context, _ Operations[int, int]) {},
-			opts: []Option[int, int]{
-				WithMaxSize[int, int](-1),
-			},
-			mustPanic: true,
-		},
-		{
-			name:     "negative timeout",
-			commitFn: func(_ context.Context, _ Operations[int, int]) {},
-			opts: []Option[int, int]{
-				WithTimeout[int, int](-1 * time.Second),
-			},
-			mustPanic: true,
-		},
-		{
-			name:     "unlimited size with no timeout",
-			commitFn: func(_ context.Context, _ Operations[int, int]) {},
-			opts: []Option[int, int]{
-				WithMaxSize[int, int](UnlimitedSize),
-				WithTimeout[int, int](NoTimeout),
-			},
-			mustPanic: true,
-		},
-		{
-			name:      "unlimited size with no timeout (no option provided)",
+			name:      "negative size",
 			commitFn:  func(_ context.Context, _ Operations[int, int]) {},
-			opts:      nil,
+			size:      -1,
 			mustPanic: true,
 		},
 		{
-			name:     "max size equals 10",
-			commitFn: func(_ context.Context, _ Operations[int, int]) {},
-			opts: []Option[int, int]{
-				WithMaxSize[int, int](10),
-			},
-			maxSize: 10,
-			timeout: NoTimeout,
+			name:      "negative timeout",
+			commitFn:  func(_ context.Context, _ Operations[int, int]) {},
+			size:      UnlimitedSize,
+			timeout:   -1 * time.Second,
+			mustPanic: true,
 		},
 		{
-			name:     "timeout equals 1s",
-			commitFn: func(_ context.Context, _ Operations[int, int]) {},
-			opts: []Option[int, int]{
-				WithTimeout[int, int](1 * time.Second),
-			},
-			maxSize: UnlimitedSize,
-			timeout: 1 * time.Second,
+			name:      "unlimited size with no timeout",
+			commitFn:  func(_ context.Context, _ Operations[int, int]) {},
+			size:      UnlimitedSize,
+			timeout:   NoTimeout,
+			mustPanic: true,
 		},
 		{
-			name:     "max size equals 10 and timeout equals 1s",
+			name:     "commit a batch every 10 operations",
 			commitFn: func(_ context.Context, _ Operations[int, int]) {},
-			opts: []Option[int, int]{
-				WithMaxSize[int, int](10),
-				WithTimeout[int, int](1 * time.Second),
-			},
-			maxSize: 10,
-			timeout: 1 * time.Second,
+			size:     10,
+			timeout:  NoTimeout,
+		},
+		{
+			name:     "commit a batch every second",
+			commitFn: func(_ context.Context, _ Operations[int, int]) {},
+			size:     UnlimitedSize,
+			timeout:  1 * time.Second,
+		},
+		{
+			name:     "commit a batch every 10 operations or every second",
+			commitFn: func(_ context.Context, _ Operations[int, int]) {},
+			size:     10,
+			timeout:  1 * time.Second,
 		},
 	} {
 		t.Run(params.name, func(t *testing.T) {
@@ -91,8 +69,8 @@ func TestNewBatcher(t *testing.T) {
 				case !params.mustPanic && r != nil:
 					t.Errorf("unexpected panic: %v", r)
 				case !params.mustPanic && r == nil:
-					if b.maxSize != params.maxSize {
-						t.Errorf("unexpected max size: got %d, want %d", b.maxSize, params.maxSize)
+					if b.size != params.size {
+						t.Errorf("unexpected size: got %d, want %d", b.size, params.size)
 					}
 					if b.timeout != params.timeout {
 						t.Errorf("unexpected timeout: got %s, want %s", b.timeout, params.timeout)
@@ -100,7 +78,7 @@ func TestNewBatcher(t *testing.T) {
 				}
 			}()
 
-			b = New(params.commitFn, params.opts...)
+			b = New(params.commitFn, params.size, params.timeout)
 		})
 	}
 }
@@ -124,7 +102,7 @@ func TestBatcherSend(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
 			defer cancel()
 
-			b := New(func(_ context.Context, _ Operations[int, int]) {}, WithMaxSize[int, int](1))
+			b := New(func(_ context.Context, _ Operations[int, int]) {}, 1, NoTimeout)
 
 			var wg sync.WaitGroup
 			if params.err == nil || !errors.Is(params.err, context.DeadlineExceeded) {
@@ -156,22 +134,22 @@ func TestBatcherSend(t *testing.T) {
 func TestBatcherBatch(t *testing.T) {
 	for _, params := range []struct {
 		name    string
-		maxSize int
+		size    int
 		timeout time.Duration
 	}{
 		{
-			name:    "max size equals 10 and no timeout",
-			maxSize: 10,
+			name:    "commit a batch every 10 operations",
+			size:    10,
 			timeout: NoTimeout,
 		},
 		{
-			name:    "unlimited size and timeout equals 1s",
-			maxSize: UnlimitedSize,
+			name:    "commit a batch every second",
+			size:    UnlimitedSize,
 			timeout: 1 * time.Second,
 		},
 		{
-			name:    "max size equals 10 and timeout equals 1s",
-			maxSize: 10,
+			name:    "commit a batch every 10 operations or every second",
+			size:    10,
 			timeout: 1 * time.Second,
 		},
 	} {
@@ -192,15 +170,15 @@ func TestBatcherBatch(t *testing.T) {
 				t.Logf("committed batch: len(ops) = %d, elapsed = %s", len(ops), elapsed)
 
 				switch {
-				case params.maxSize != UnlimitedSize && len(ops) > params.maxSize:
-					t.Errorf("unexpected batch size: got %d, want at most %d", len(ops), params.maxSize)
+				case params.size != UnlimitedSize && len(ops) > params.size:
+					t.Errorf("unexpected batch size: got %d, want at most %d", len(ops), params.size)
 				case params.timeout != NoTimeout && elapsed-dt > params.timeout:
 					t.Errorf("unexpected timeout: got %s, want at most %s⩲%s", elapsed, params.timeout, dt)
 				}
 
 				totalSizeCommitted += len(ops)
 			}
-			b := New(commitFn, WithMaxSize[time.Time, time.Time](params.maxSize), WithTimeout[time.Time, time.Time](params.timeout))
+			b := New(commitFn, params.size, params.timeout)
 
 			var wg sync.WaitGroup
 			wg.Add(1)
@@ -209,7 +187,7 @@ func TestBatcherBatch(t *testing.T) {
 				b.Batch(ctx)
 			}()
 
-			totalSize := max(2*params.maxSize, 10)
+			totalSize := max(2*params.size, 10)
 			greaterTimeout := params.timeout + 1*time.Second
 			for i := range totalSize {
 				switch i {

@@ -16,7 +16,7 @@ func Throttle[T, R any](commitFn batcher.CommitFunc[T, R], interval time.Duratio
 	}
 
 	if interval < 0 {
-		panic("batcher: negative commit throttle interval")
+		panic("batcher: negative interval")
 	}
 
 	t := time.NewTimer(0)

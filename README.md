@@ -3,7 +3,7 @@
 [![Go Reference](https://pkg.go.dev/badge/go.vallahaye.net/batcher.svg)](https://pkg.go.dev/go.vallahaye.net/batcher)
 [![Go Report Card](https://goreportcard.com/badge/go.vallahaye.net/batcher)](https://goreportcard.com/report/go.vallahaye.net/batcher)
 
-Go Batcher provides a generic and versatile implementation of a batching algorithm for Golang, with no third-party dependencies. The algorithm can be constrained in [space](https://pkg.go.dev/go.vallahaye.net/batcher#WithMaxSize) and [time](https://pkg.go.dev/go.vallahaye.net/batcher#WithTimeout), with a simple yet robust API, enabling developers to easily incorporate batching into their live services.
+Go Batcher provides a generic and versatile implementation of a batching algorithm for Golang, with no third-party dependencies. The algorithm can be constrained in space and time, with a simple yet robust API, enabling developers to easily incorporate batching into their live services.
 
 ### Goals
 
@@ -30,7 +30,7 @@ commitFn := func(ctx context.Context, ops batcher.Operations[string, string]) {
 }
 
 // Create a batcher committing a batch every 10 operations.
-b := batcher.New(commitFn, batcher.WithMaxSize[string, string](10))
+b := batcher.New(commitFn, 10, batcher.NoTimeout)
 
 // Run the batcher in the background. Cancel the context to interrupt the batching process.
 ctx, cancel := context.WithCancel(context.Background())

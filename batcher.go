@@ -8,87 +8,72 @@ import (
 // Batch an unlimited amount of operations.
 const UnlimitedSize = 0
 
-// Batch operations for an infinite duration.
+// Batch operations indefinitely.
 const NoTimeout time.Duration = 0
-
-type Option[T, R any] func(*Batcher[T, R])
-
-// WithMaxSize configures the max size constraint on a batcher.
-func WithMaxSize[T, R any](maxSize int) Option[T, R] {
-	return func(b *Batcher[T, R]) {
-		b.maxSize = maxSize
-	}
-}
-
-// WithTimeout configures the timeout constraint on a batcher.
-func WithTimeout[T, R any](timeout time.Duration) Option[T, R] {
-	return func(b *Batcher[T, R]) {
-		b.timeout = timeout
-	}
-}
 
 type Batcher[T, R any] struct {
 	commitFn CommitFunc[T, R]
-	maxSize  int
+	size     int
 	timeout  time.Duration
 	in       chan *Operation[T, R]
 }
 
-// New creates a new batcher, calling the commit function each time it
-// completes a batch of operations according to its options. It panics if the
-// commit function is nil, max size is negative, timeout is negative or max
-// size equals [UnlimitedSize] and timeout equals [NoTimeout] (the default if
-// no options are provided).
+// New creates a new batcher, with a commit function, a size and a timeout
+// constraint. It panics if the commit function is nil, size is negative,
+// timeout is negative, or size equals [UnlimitedSize] and timeout equals
+// [NoTimeout].
 //
 // Some examples:
 //
 // Create a batcher committing a batch every 10 operations:
 //
-//	New[T, R](commitFn, WithMaxSize(10))
+//	New[T, R](commitFn, 10, NoTimeout)
 //
-// Create a batcher committing a batch 1 second after receiving the first
-// operation:
+// Create a batcher committing a batch every second:
 //
-//	New[T, R](commitFn, WithTimeout(1 * time.Second))
+//	New[T, R](commitFn, UnlimitedSize, 1*time.Second)
 //
-// Create a batcher committing a batch containing at most 10 operations and at
-// most 1 second after receiving the first operation:
+// Create a batcher committing a batch every 10 operations or every second:
 //
-//	New[T, R](commitFn, WithMaxSize(10), WithTimeout(1 * time.Second))
-func New[T, R any](commitFn CommitFunc[T, R], opts ...Option[T, R]) *Batcher[T, R] {
-	b := &Batcher[T, R]{
-		commitFn: commitFn,
-		maxSize:  UnlimitedSize,
-		timeout:  NoTimeout,
-		in:       make(chan *Operation[T, R]),
-	}
-
-	for _, opt := range opts {
-		opt(b)
-	}
-
-	if b.commitFn == nil {
+//	New[T, R](commitFn, 10, 1*time.Second)
+//
+// See also:
+//
+//   - [CommitFunc] for more information about commit functions
+//   - [Batcher.Batch] to start the batching process
+//   - [Batcher.Send] to create and send an operation to the batcher
+func New[T, R any](commitFn CommitFunc[T, R], size int, timeout time.Duration) *Batcher[T, R] {
+	if commitFn == nil {
 		panic("batcher: nil commit func")
 	}
 
-	if b.maxSize < 0 {
-		panic("batcher: negative max size")
+	if size < 0 {
+		panic("batcher: negative size")
 	}
 
-	if b.timeout < 0 {
+	if timeout < 0 {
 		panic("batcher: negative timeout")
 	}
 
-	if b.maxSize == UnlimitedSize && b.timeout == NoTimeout {
+	if size == UnlimitedSize && timeout == NoTimeout {
 		panic("batcher: unlimited size with no timeout")
 	}
 
-	return b
+	return &Batcher[T, R]{
+		commitFn: commitFn,
+		size:     size,
+		timeout:  timeout,
+		in:       make(chan *Operation[T, R]),
+	}
 }
 
 // Send creates a new operation and sends it to the batcher in a blocking
 // fashion. If the provided context expires before the batcher receives the
 // operation, Send returns the context's error.
+//
+// See also:
+//
+//   - [Operation.Wait] to get the operation's result or error
 func (b *Batcher[T, R]) Send(ctx context.Context, v T) (*Operation[T, R], error) {
 	op := newOperation[T, R](v)
 	select {
@@ -99,17 +84,17 @@ func (b *Batcher[T, R]) Send(ctx context.Context, v T) (*Operation[T, R], error)
 	}
 }
 
-// Batch receives operations from the batcher, calling the commit function
-// whenever max size is reached or a timeout occurs. Timeouts are disabled
-// while receiving the first operation of each batch.
+// Batch receives operations from the batcher in a blocking fashion, invoking
+// the commit function whenever the size or timeout constraint is reached.
+// Timeouts are disabled while receiving the first operation of each batch.
 //
 // When the provided context expires, the batching process is interrupted and
-// the function returns after a final call to the commit function. The latter
-// is skipped if there are no latent operations.
+// the function returns. Before returning, a final call to the commit function
+// is made if there are any latent operations; otherwise, it is skipped.
 func (b *Batcher[T, R]) Batch(ctx context.Context) {
 	var out Operations[T, R]
-	if b.maxSize != UnlimitedSize {
-		out = make(Operations[T, R], 0, b.maxSize)
+	if b.size != UnlimitedSize {
+		out = make(Operations[T, R], 0, b.size)
 	}
 
 	var (
@@ -119,10 +104,11 @@ func (b *Batcher[T, R]) Batch(ctx context.Context) {
 
 	for {
 		var commit, done bool
+
 		select {
 		case op := <-b.in:
 			out = append(out, op)
-			if len(out) == b.maxSize {
+			if len(out) == b.size {
 				commit = true
 			}
 		case <-c:
@@ -136,9 +122,8 @@ func (b *Batcher[T, R]) Batch(ctx context.Context) {
 
 		if commit {
 			b.commitFn(ctx, out)
-
-			c = nil
 			out = out[:0]
+			c = nil
 		}
 
 		if done {
